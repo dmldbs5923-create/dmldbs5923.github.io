@@ -316,7 +316,6 @@ const USERS=[
   {id:0,name:'김민종',studentId:'2101042',emoji:'👑',color:'#C9A84C',bg:'rgba(201,168,76,.15)',isAdmin:true},
   {id:1,name:'문성일',studentId:'2001184',emoji:'😊',color:'#4E7FD4',bg:'rgba(78,127,212,.15)',isAdmin:false},
   {id:2,name:'손의윤',studentId:'2101056',emoji:'🙋',color:'#4CAF82',bg:'rgba(76,175,130,.15)',isAdmin:false},
-  {id:3,name:'강규창 교수님',studentId:'1635228',emoji:'😎',color:'#4CAF82',bg:'rgba(33,150,243,.15)',isAdmin:false},
 ];
 let curUser=null;
 
@@ -326,11 +325,17 @@ const RNAME={living:'거실',bedroom:'안방',bathroom:'화장실'};
 const roomState={living:false,bedroom:false,bathroom:false};
 
 let logs=[],notifs=[];
-let members=[
-  {id:1,name:'문성일',studentId:'2001184',emoji:'😊',color:'#4E7FD4',bg:'rgba(78,127,212,.15)'},
-  {id:2,name:'손의윤',studentId:'2101056',emoji:'🙋',color:'#4CAF82',bg:'rgba(76,175,130,.15)'},
+let members=[];  // Firebase에서 실시간으로 불러옴
+let pending=[],nid=100,pnid=200;
+
+// 멤버 색상 팔레트
+const MC=[
+  {color:'#4E7FD4',bg:'rgba(78,127,212,.15)'},
+  {color:'#4CAF82',bg:'rgba(76,175,130,.15)'},
+  {color:'#C9504C',bg:'rgba(201,80,76,.15)'},
+  {color:'#9B7FD4',bg:'rgba(155,127,212,.15)'},
 ];
-let pending=[],nid=3,pnid=100;
+function getMC(idx){ return MC[idx%MC.length]; }
 
 // ── 로그인 ──
 function login(idx){
@@ -392,6 +397,24 @@ function initFB(){
     });
     if(document.getElementById('p-hist').classList.contains('show')) renderLogs();
     if(document.getElementById('p-notif').classList.contains('show')) renderNotifs();
+  });
+
+  // ── 멤버 목록 실시간 Firebase 연동 ──
+  db.ref('/members').on('value',s=>{
+    members=[];
+    s.forEach(c=>{
+      members.push({id:c.key, ...c.val()});
+    });
+    // 기본 멤버 없으면 자동 추가
+    if(members.length===0 && curUser && curUser.isAdmin){
+      const defaults=[
+        {name:'문성일',studentId:'2001184',emoji:'😊',...getMC(0)},
+        {name:'손의윤',studentId:'2101056',emoji:'🙋',...getMC(1)},
+        {name:'강규창',studentId:'0000001',emoji:'👨‍🏫',...getMC(2)},
+      ];
+      defaults.forEach(m=>db.ref('/members').push(m));
+    }
+    if(document.getElementById('p-share').classList.contains('show')) renderShare();
   });
 }
 
@@ -561,12 +584,41 @@ function renderShare(){
   el.innerHTML=html;
 }
 
-const MC=[{color:'#9B7FD4',bg:'rgba(155,127,212,.15)'},{color:'#E8A84C',bg:'rgba(232,168,76,.15)'},{color:'#C9504C',bg:'rgba(201,80,76,.15)'},{color:'#4E7FD4',bg:'rgba(78,127,212,.15)'}];
-function approveMember(id){const p=pending.find(x=>x.id===id);if(!p)return;if(members.length>=4){toast('나머지 대상이 꽉 찼어요');return;}const mc=MC[members.length%MC.length];members.push({id:nid++,name:p.name,studentId:p.studentId||'-',emoji:p.emoji,color:mc.color,bg:mc.bg});pending=pending.filter(x=>x.id!==id);renderShare();toast(p.name+' 님을 승인했어요 ✅');}
+function approveMember(id){
+  const p=pending.find(x=>x.id===id);
+  if(!p)return;
+  if(members.length>=4){toast('나머지 대상이 꽉 찼어요');return;}
+  const mc=getMC(members.length);
+  db.ref('/members').push({name:p.name,studentId:p.studentId||'-',emoji:p.emoji,color:mc.color,bg:mc.bg});
+  pending=pending.filter(x=>x.id!==id);
+  renderShare();
+  toast(p.name+' 님을 승인했어요 ✅');
+}
 function rejectMember(id){pending=pending.filter(x=>x.id!==id);renderShare();toast('요청을 거절했어요');}
-function rmMember(id){members=members.filter(m=>m.id!==id);renderShare();toast('멤버가 제거됐어요');}
-function doAdd(){const name=document.getElementById('mnm').value.trim();const stu=document.getElementById('mstu').value.trim()||'-';const emoji=document.getElementById('memj').value.trim()||'👤';if(!name){toast('이름을 입력해주세요');return;}if(members.length>=4){toast('나머지 대상이 꽉 찼어요');return;}const mc=MC[members.length%MC.length];members.push({id:nid++,name,studentId:stu,emoji,color:mc.color,bg:mc.bg});document.getElementById('addForm').style.display='none';renderShare();toast(name+' 님을 추가했어요 🎉');}
-function sendReq(){const name=document.getElementById('rqnm').value.trim();const emoji=document.getElementById('rqemj').value.trim()||'🙋';if(!name){toast('이름을 입력해주세요');return;}pending.push({id:pnid++,name,emoji,studentId:'',time:'방금'});document.getElementById('reqForm').style.display='none';renderShare();toast('관리자(김민종)에게 요청을 보냈어요 📩');}
+function rmMember(id){
+  db.ref('/members/'+id).remove();
+  toast('멤버가 제거됐어요');
+}
+function doAdd(){
+  const name=document.getElementById('mnm').value.trim();
+  const stu=document.getElementById('mstu').value.trim()||'-';
+  const emoji=document.getElementById('memj').value.trim()||'👤';
+  if(!name){toast('이름을 입력해주세요');return;}
+  if(members.length>=4){toast('나머지 대상이 꽉 찼어요');return;}
+  const mc=getMC(members.length);
+  db.ref('/members').push({name,studentId:stu,emoji,color:mc.color,bg:mc.bg});
+  document.getElementById('addForm').style.display='none';
+  toast(name+' 님을 추가했어요 🎉');
+}
+function sendReq(){
+  const name=document.getElementById('rqnm').value.trim();
+  const emoji=document.getElementById('rqemj').value.trim()||'🙋';
+  if(!name){toast('이름을 입력해주세요');return;}
+  pending.push({id:pnid++,name,emoji,studentId:'',time:'방금'});
+  document.getElementById('reqForm').style.display='none';
+  renderShare();
+  toast('관리자(김민종)에게 요청을 보냈어요 📩');
+}
 
 function go(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('show'));document.getElementById(id).classList.add('show');if(id==='p-hist')renderLogs();if(id==='p-notif')renderNotifs();if(id==='p-share')renderShare();}
 function openDrw(){document.getElementById('drw').classList.add('open');document.getElementById('dovl').classList.add('open');}
